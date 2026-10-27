@@ -78,7 +78,10 @@
   // Real (trusted) click at the button centre, sent via the background page.
   const trustedClick = (el, useZoom) => {
     if (window.top !== window) return;
-    const r = el.getBoundingClientRect();
+    const target = (el && el.tagName === 'BUTTON') ? el : ((el && el.querySelector('button')) || el);
+    const hit = hitTarget(target) || target;
+    const r = hit.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
     try {
       chrome.runtime.sendMessage({
         type: 'skipTrustedClick',
@@ -107,7 +110,16 @@
     if (!player || !video || !player.classList.contains('ad-showing')) return false;
     // Image/static ads have no usable video duration; the caller falls back to clicking.
     if (!isFinite(video.duration) || video.duration <= 0) return false;
+    // If the video ad already reached the end, it has no video left to jump;
+    // this is now a static residue ad. Return false so caller falls back to trustedClick.
+    if (video.ended || video.currentTime >= video.duration - 0.5) {
+      if (video.paused) video.play().catch(() => {});
+      return false;
+    }
     console.debug('[NoFluff] seeking ad to end', video.currentTime, '/', video.duration);
+    try {
+      video.playbackRate = 16.0;
+    } catch (e) {}
     video.currentTime = video.duration;
     return true;
   };
@@ -132,12 +144,29 @@
           '.ytp-ad-skip-button-container button',
           '.ytp-skip-ad button',
           '.ytp-ad-player-overlay-layout__skip-or-preview-container button',
+          '.ytp-ad-player-overlay-layout__skip-or-preview-container [class*="skip"]',
+          '.ytp-ad-skip-button-slot button',
+          '.ytp-ad-skip-button-slot',
+          'button[id^="skip-button:"]',
+          'button[aria-label*="Skip" i]',
           '#movie_player [class*="skip-ad"] button',
+          '#movie_player [class*="skip-button"]',
         ],
       },
       {
         key: 'ytOverlay',
-        selectors: ['.ytp-ad-overlay-close-button', '.ytp-ad-overlay-close-container'],
+        selectors: [
+          '.ytp-ad-overlay-close-button',
+          '.ytp-ad-overlay-close-container',
+          '.ytp-ad-player-overlay-layout__close-button',
+          '.ytp-ad-action-interstitial button[class*="close"]',
+          '.ytp-ad-endslate button[class*="close"]',
+          '.ytp-ad-button-close',
+          'button[aria-label*="Close ad" i]',
+          'button[aria-label*="Close" i][class*="ytp-ad"]',
+          '#movie_player .video-ads button[aria-label*="Close" i]',
+          '#movie_player .ytp-ad-module button[aria-label*="Close" i]',
+        ],
       },
     ],
     netflix: [
@@ -248,9 +277,13 @@
           const step = n % 3;
           if (step === 0) el.click();
           else if (step === 1) press(el);
-          else if (site === 'youtube' && key === 'ytAd') {
-            // Video ad: seek. Static ad (no video): trusted click through the background.
-            if (!seekAdToEnd()) trustedClick(el, Math.floor(n / 3) % 2 === 0);
+          else if (site === 'youtube') {
+            // Video ad: seek to end. Static ad, residual static ad, or overlay close: trusted click through background.
+            if (key === 'ytAd' && seekAdToEnd()) {
+              // Video jumped to end
+            } else {
+              trustedClick(el, Math.floor(n / 3) % 2 === 0);
+            }
           } else el.click();
           // Only report a skip if the button actually went away.
           setTimeout(() => {

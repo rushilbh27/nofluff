@@ -283,10 +283,11 @@ chrome.debugger.onDetach.addListener((source) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || msg.type !== 'skipTrustedClick' || !sender.tab || !sender.url) return false;
+  if (!msg || msg.type !== 'skipTrustedClick' || !sender.tab) return false;
   let host = '';
   try {
-    host = new URL(sender.url).hostname;
+    const rawUrl = sender.url || (sender.tab && sender.tab.url);
+    if (rawUrl) host = new URL(rawUrl).hostname;
   } catch (e) {
     return false;
   }
@@ -295,16 +296,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
       const tabId = sender.tab.id;
-      // Browser zoom: unclear whether input coords are zoomed, so the caller alternates.
+      // Browser zoom: coordinates in DevTools Input protocol use CSS viewport coordinates.
       const k = msg.useZoom ? await chrome.tabs.getZoom(tabId) : 1;
-      const x = msg.x * k;
-      const y = msg.y * k;
+      const x = Math.round(msg.x * k);
+      const y = Math.round(msg.y * k);
+      console.debug('[NoFluff] trusted click at', x, y, 'tab', tabId);
       await skipEnsureAttached(tabId);
       await skipCmd(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
       await skipCmd(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
       await skipCmd(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
       sendResponse({ ok: true });
     } catch (e) {
+      console.warn('[NoFluff] trusted click failed:', e);
       sendResponse({ ok: false, error: String(e) });
     }
   })();

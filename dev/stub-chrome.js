@@ -61,7 +61,7 @@
   window.chrome = {
     runtime: {
       lastError: undefined,
-      getManifest: () => ({ version: '1.2.0' }),
+      getManifest: () => ({ version: '1.2.1' }),
       openOptionsPage: () => { console.log('[stub] openOptionsPage()'); window.__openedOptions = true; },
       sendMessage: (msg, cb) => {
         const delay = msg.type === 'rating' ? 150 + Math.random() * 500 : 20;
